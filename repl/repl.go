@@ -1,12 +1,11 @@
 package repl
 
 import (
-	"bufio"
 	"fmt"
+	"github.com/eiannone/keyboard"
 	"io"
 	"os"
 	"os/user"
-	"strings"
 )
 
 const nl string = "\n"
@@ -18,6 +17,7 @@ type Command struct {
 }
 
 type repl struct {
+	buf buffer
 	replCmds ReplCommands
 	userCmds UserCommands
 }
@@ -28,72 +28,63 @@ type input struct {
 	in     string
 }
 
-type parser struct {
-	commands UserCommands
-	items []string
-	pos int
-}
-
 type ReplCommands map[string]func() (bool, error)
 type UserCommands map[string]Command
 
-func (p *parser) run() {
-	cmd := p.items[p.pos]
-	next := p.pos+1
-
-	if !p.isCommand(cmd) {
-		fmt.Printf("Invalid command: %v", cmd)
-		return
-	}
-
-	if len(p.items) > next {
-		if idx, ok := p.isSubCommand(cmd, p.items[next]); ok {
-			// exec sub command
-			p.commands[cmd].SubCommands[idx].Action()
-			return
-		}
-	}
-
-	// exec command
-	p.commands[cmd].Action()
-}
-
-func (p *parser) isSubCommand(cmd string, subcmd string) (int, bool) {
-	for idx, C := range p.commands[cmd].SubCommands {
-		if C.Name == subcmd {
-			return idx, true
-		}
-	}
-
-	return -1, false
-}
-
-func (p *parser) isCommand(cmd string) bool {
-	if _, ok := p.commands[cmd]; ok {
-		return true
-	}
-
-	return false
-}
-
 func (r *repl) run(in io.Reader, out io.Writer) {
-	scanner := bufio.NewScanner(in)
+	err := keyboard.Open()
+	if err != nil {
+		panic(err)
+	}
+	defer keyboard.Close()
+
+	buf := newBuffer()
+	buf.print()
+
+	for {
+		char, key, err := keyboard.GetKey()
+		if err != nil {
+			panic(err)
+		}
+
+		if key == keyboard.KeyEsc {
+			break
+		} else if key == keyboard.KeySpace {
+			buf.add('\u0020')
+		} else if key == keyboard.KeyBackspace2 {
+			buf.add('\u0008')
+			buf.add('\u0020')
+			buf.add('\u0008')
+			//buf.add('\b')
+		} else if key == keyboard.KeyEnter {
+			if "hello" == buf.toString() {
+				fmt.Println("YES!")
+			}
+		}
+
+		buf.add(char)
+		buf.print()
+	}
+
+
+
+
+	/*scanner := bufio.NewScanner(in)
 
 	for {
 		r.prompt()
+
 		scanned := scanner.Scan()
 		if !scanned {
 			return
 		}
 
 		text := strings.TrimSpace(scanner.Text())
-
 		if len(text) < 1 {
 			continue
 		}
 
-		input := newInput(scanner.Text())
-
+		input := newInput(text)
 		if input.isRepl {
 			ok, _ := r.runReplCmd(input)
 			if !ok {
@@ -109,7 +100,7 @@ func (r *repl) run(in io.Reader, out io.Writer) {
 		}*/
 
 		//fmt.Print(input.in)
-	}
+	//}
 }
 
 func (r *repl) prompt() {
@@ -149,6 +140,7 @@ func New() *repl {
 
 	i.replCmds = map[string]func() (bool, error){}
 	i.userCmds = UserCommands{}
+	//i.history = map[int]string{}
 
 	// register repl commands
 	i.replCmds["quit"] = func() (bool, error) {
@@ -168,11 +160,4 @@ func newInput(i string) *input {
 	}
 
 	return &in
-}
-
-func newParser(in *input, c UserCommands) *parser {
-	items := strings.Split(in.in, " ")
-	p := parser{c,items, 0}
-
-	return &p
 }
